@@ -1,0 +1,50 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: clienthub
+      DB_USER: clienthub
+      DB_PASSWORD: clienthub_password
+    ports:
+      - "5000:5000"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [clienthub-network]
+
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: clienthub
+      MYSQL_USER: clienthub
+      MYSQL_PASSWORD: clienthub_password
+      MYSQL_ROOT_PASSWORD: root_password
+    volumes:
+      - clienthub-mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uclienthub", "-pclienthub_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [clienthub-network]
+
+  web:
+    image: nginx:1.27-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./site:/usr/share/nginx/html:ro
+    depends_on: [api]
+    networks: [clienthub-network]
+
+networks:
+  clienthub-network:
+    name: clienthub-network
+
+volumes:
+  clienthub-mysql-data:
