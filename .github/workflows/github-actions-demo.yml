@@ -1,0 +1,32 @@
+name: GitHub Actions Demo
+
+on:
+  push:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/5 * * * *"
+
+jobs:
+  explore-github-actions:
+    runs-on: ubuntu-latest
+    env:
+      SECRET_API_TOKEN: ${{ secrets.SECRET_API_TOKEN }}
+    steps:
+      - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
+      - run: echo "🐧 This job is now running on a ${{ runner.os }} server hosted by GitHub!"
+      - run: echo "🔎 The name of your branch is ${{ github.ref }} and your repository is ${{ github.repository }}."
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Exécuter le script Python
+        run: python job.py
+      - name: Générer un fichier de sortie
+        run: echo "Généré par GitHub Actions le $(date -u)" > pipeline-output.txt
+      - name: Publier le fichier comme artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-output
+          path: pipeline-output.txt
