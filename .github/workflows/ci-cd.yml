@@ -1,0 +1,89 @@
+name: ClientHub CI/CD
+
+on:
+  push:
+    branches: [main]
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/clienthub
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -m "not e2e" -q
+
+  e2e-tests:
+    name: E2E tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest
+      - run: pytest -m e2e -q
+
+  build-push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    needs: [unit-tests, e2e-tests]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy on Azure VM
+    runs-on: ubuntu-latest
+    needs: build-push
+    steps:
+      - name: Deploy idempotently over SSH
+        uses: appleboy/ssh-action@v1.2.2
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}:latest
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_ROOT_PASSWORD }}
+        with:
+          host: ${{ secrets.AZURE_VM_HOST }}
+          username: ${{ secrets.AZURE_VM_USER }}
+          key: ${{ secrets.AZURE_VM_SSH_KEY }}
+          envs: IMAGE,MYSQL_ROOT_PASSWORD
+          script: |
+            set -e
+            docker network inspect clienthub >/dev/null 2>&1 || docker network create clienthub
+            docker pull mysql:8.4
+            docker pull "$IMAGE"
+            docker rm -f myapp-db myapp >/dev/null 2>&1 || true
+            docker run -d --name myapp-db --network clienthub --restart unless-stopped -e MYSQL_DATABASE=clienthub -e MYSQL_ROOT_PASSWORD="$MYSQL_ROOT_PASSWORD" mysql:8.4
+            sleep 15
+            docker run -d --name myapp --network clienthub --restart unless-stopped -p 80:5000 -e DB_HOST=myapp-db -e DB_NAME=clienthub -e DB_USER=root -e DB_PASSWORD="$MYSQL_ROOT_PASSWORD" "$IMAGE"
+            for i in $(seq 1 20); do
+              if curl --fail --silent http://127.0.0.1/health; then exit 0; fi
+              sleep 3
+            done
+            docker logs myapp
+            exit 1
