@@ -1,0 +1,31 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: appdb
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - exonet
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASSWORD: example
+      DB_NAME: appdb
+    ports:
+      - "5000:5000"
+    depends_on:
+      - mysql
+    networks:
+      - exonet
+networks:
+  exonet:
+    name: exonet
+volumes:
+  mysql-data:
